@@ -1,4 +1,7 @@
+_______________________________________________________________________
+
 #+PAGE.SVELTE#
+_______________________________________________________________________
 
 <h1>Bottlenecks in terms of inbound and transportation time</h1>
 <p>Total inbound and transportation time for production plants - PLANT 1</p>
@@ -105,8 +108,10 @@
 {:else if $currentComponent === 'HomeBatteryChartComponent'}
   <HomeBatteryChartComponent {sortByTotalInbound} />
 {/if}
+_______________________________________________________________________
 
 #CHARTCOMPONENT.SVELTE#
+_______________________________________________________________________
 
 <h1>Both batteries</h1>
 
@@ -313,8 +318,10 @@
 <div class="chart-container">
   <canvas id="polar-area-chart"></canvas>
 </div>
+_______________________________________________________________________
 
 #CARBATTERYCHARTCOMPONENT.SVELTE#
+_______________________________________________________________________
 
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -521,4 +528,215 @@
 <div class="chart-container">
   <canvas id="car-battery-polar-area-chart"></canvas>
 </div>
+
+#HOMEBATTERYCHARTCOMPONENT.SVELTE#
+
+<h1>Home battery</h1>
+
+
+<script lang="ts">
+    import { onMount } from 'svelte';
+    import Chart from 'chart.js/auto';
+    import type { ChartData, ChartOptions, TooltipItem } from 'chart.js';
+    import { writable } from 'svelte/store';
+  
+    interface DataEntry {
+      MaterialKey: number;
+      PlantKey: number;
+      MaterialPlantKey: number;
+      VendorKey: number;
+      ProductionTime: number;
+      InboundTransportationTime: number;
+      LogTransportation: number;
+      TotalInbound: number;
+      LogTotalInbound: number;
+      Material: string;
+      MaterialDescription: string;
+      ProductCategory: string;
+      Component: string;
+      CarBattery: string;
+      Home: string;
+    }
+  
+    interface GroupedData {
+      category: string;
+      entries: DataEntry[];
+    }
+  
+    let chartData: DataEntry[] = [];
+    let groupedData: GroupedData[] = [];
+    let labels: string[] = [];
+    let chartValues: number[] = [];
+    let totalInboundValues: number[] = [];
+    let inboundTransportationTimes: number[] = [];
+    let backgroundColors: string[] = [];
+    let chart: Chart<'polarArea'> | undefined;
+  
+    const vendorColors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']; 
+  
+    export let sortByTotalInbound = writable(false);
+  
+    onMount(async () => {
+      const response = await fetch('/custom-solar.json');
+      chartData = await response.json();
+      processChartData();
+      createChart();
+    });
+  
+    $: if (chart) {
+      updateChart();
+    }
+  
+    $: sortByTotalInbound.subscribe(value => {
+      updateChart();
+    });
+  
+    function processChartData() {
+      const filteredData = chartData.filter(entry => entry.PlantKey === 1 && entry.Home === 'Yes');
+  
+      const uniqueEntries = Array.from(new Map(filteredData.map(item => [item.MaterialKey, item])).values());
+  
+      const categories = Array.from(new Set(uniqueEntries.map(entry => entry.ProductCategory)));
+      groupedData = categories.map(category => ({
+        category,
+        entries: uniqueEntries.filter(entry => entry.ProductCategory === category)
+      }));
+  
+      updateChartData();
+    }
+  
+    function updateChartData() {
+      labels = [];
+      chartValues = [];
+      totalInboundValues = [];
+      inboundTransportationTimes = [];
+      backgroundColors = [];
+  
+      let allEntries = groupedData.flatMap(group => group.entries);
+  
+      if ($sortByTotalInbound) {
+        allEntries = allEntries.sort((a, b) => b.LogTotalInbound - a.LogTotalInbound);
+      }
+  
+      allEntries.forEach(entry => {
+        labels.push(entry.MaterialDescription);
+        chartValues.push(entry.LogTotalInbound);
+        totalInboundValues.push(entry.TotalInbound);
+        inboundTransportationTimes.push(entry.InboundTransportationTime);
+        backgroundColors.push(vendorColors[entry.VendorKey - 1]);
+      });
+    }
+  
+    function createChart() {
+      const ctx = document.getElementById('home-battery-polar-area-chart') as HTMLCanvasElement | null;
+      if (!ctx) {
+        console.error("Could not get canvas element.");
+        return;
+      }
+  
+      const context = ctx.getContext('2d');
+      if (!context) {
+        console.error("Could not get context for canvas.");
+        return;
+      }
+  
+      const data: ChartData<'polarArea', number[], string> = {
+        labels: labels,
+        datasets: [{
+          data: chartValues,
+          backgroundColor: backgroundColors
+        }]
+      };
+  
+      const options: ChartOptions<'polarArea'> = {
+        responsive: true,
+        scales: {
+          r: {
+            ticks: {
+              display: false 
+            },
+            grid: {
+              circular: true
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false 
+          },
+          tooltip: {
+            callbacks: {
+              label: function (tooltipItem: TooltipItem<'polarArea'>) {
+                const index = tooltipItem.dataIndex;
+                const inboundTransportationTime = inboundTransportationTimes[index];
+                const totalInbound = totalInboundValues[index];
+                const componentName = labels[index];
+                return `${componentName}\nTransportation time: ${inboundTransportationTime}\nTotal Inbound time: ${totalInbound}`;
+              }
+            }
+          }
+        }
+      };
+  
+      chart = new Chart(context, {
+        type: 'polarArea',
+        data: data,
+        options: options,
+        plugins: [{
+          id: 'categoryLabels',
+          afterDatasetsDraw: (chart) => {
+            const { ctx, chartArea: { top, bottom, left, right } } = chart;
+            const datasets = chart.data.datasets;
+            const meta = chart.getDatasetMeta(0);
+            const radius = (right - left) / 2;
+  
+            ctx.save();
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'black';
+  
+            datasets[0].data.forEach((value, index) => {
+              const angleProps = meta.data[index].getProps(['startAngle', 'endAngle']);
+              const startAngle = angleProps.startAngle;
+              const endAngle = angleProps.endAngle;
+              const middleAngle = (startAngle + endAngle) / 2;
+              const posX = (chart.width / 2) + (radius / 2) * Math.cos(middleAngle);
+              const posY = (chart.height / 2) + (radius / 2) * Math.sin(middleAngle);
+  
+              ctx.save();
+              ctx.translate(posX, posY);
+              ctx.rotate(middleAngle);
+              ctx.fillText(groupedData.find(group => group.entries.some(entry => entry.MaterialDescription === labels[index]))?.category || '', 0, 0);
+              ctx.restore();
+            });
+  
+            ctx.restore();
+          }
+        }]
+      });
+    }
+  
+    function updateChart() {
+      if (!chart) return;
+  
+      updateChartData();
+  
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = chartValues;
+      chart.data.datasets[0].backgroundColor = backgroundColors;
+      chart.update();
+    }
+  </script>
+  
+  <style>
+    .chart-container {
+      width: 50%;
+      margin: auto;
+    }
+  </style>
+  
+  <div class="chart-container">
+    <canvas id="home-battery-polar-area-chart"></canvas>
+  </div>
 
